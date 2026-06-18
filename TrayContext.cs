@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using Velopack;
+using Velopack.Sources;
 
 namespace AiUsageCounter;
 
@@ -41,6 +43,9 @@ public sealed class TrayContext : ApplicationContext
     private System.Windows.Forms.Timer? _localDebounce;
     private IntPtr _iconHandle = IntPtr.Zero;
     private bool _busyLogin;
+    private bool _checkingUpdate;
+
+    private const string UpdateRepoUrl = "https://github.com/azsx69/AI-USAGE-COUNTER-FORWIN";
 
     public TrayContext()
     {
@@ -72,6 +77,53 @@ public sealed class TrayContext : ApplicationContext
         StartWatcher();
         FetchAllSignedIn();
         RefreshDisplay();
+        _ = CheckForUpdatesAsync(silent: true);
+    }
+
+    // MARK: - Auto update (Velopack + GitHub Releases)
+
+    // ตรวจและติดตั้ง update จาก GitHub Releases. silent=true เรียกตอนเปิดแอป
+    // จะเงียบเมื่อไม่มีอัปเดต/รันนอก installer; silent=false เป็นการกดจากเมนู
+    // จะแจ้งผลทุกกรณี
+    private async Task CheckForUpdatesAsync(bool silent)
+    {
+        if (_checkingUpdate) return;
+        _checkingUpdate = true;
+        try
+        {
+            var mgr = new UpdateManager(new GithubSource(UpdateRepoUrl, null, false));
+            if (!mgr.IsInstalled)
+            {
+                if (!silent)
+                    MessageBox.Show("ยังไม่ได้ติดตั้งผ่านตัวติดตั้ง — update ใช้ได้เฉพาะเวอร์ชันที่ติดตั้งแล้ว",
+                        "AI Usage Counter", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var info = await mgr.CheckForUpdatesAsync();
+            if (info is null)
+            {
+                if (!silent)
+                    MessageBox.Show($"เป็นเวอร์ชันล่าสุดแล้ว (v{mgr.CurrentVersion})",
+                        "AI Usage Counter", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var ask = MessageBox.Show(
+                $"มีเวอร์ชันใหม่ v{info.TargetFullRelease.Version} (ปัจจุบัน v{mgr.CurrentVersion})\nต้องการอัปเดตและรีสตาร์ทตอนนี้หรือไม่?",
+                "AI Usage Counter — มีอัปเดต", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (ask != DialogResult.Yes) return;
+
+            await mgr.DownloadUpdatesAsync(info);
+            mgr.ApplyUpdatesAndRestart(info);
+        }
+        catch (Exception ex)
+        {
+            if (!silent)
+                MessageBox.Show("ตรวจอัปเดตไม่สำเร็จ: " + ex.Message,
+                    "AI Usage Counter", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+        finally { _checkingUpdate = false; }
     }
 
     // MARK: - Fetching
@@ -236,6 +288,7 @@ public sealed class TrayContext : ApplicationContext
 
         _menu.Items.Add(new ToolStripMenuItem("Refresh now", null, (_, _) => { FetchAllSignedIn(); _ = RefreshLocalAsync(); }));
         _menu.Items.Add(new ToolStripSeparator());
+        _menu.Items.Add(new ToolStripMenuItem("Check for updates…", null, (_, _) => _ = CheckForUpdatesAsync(silent: false)));
         _menu.Items.Add(new ToolStripMenuItem("Quit", null, (_, _) => Quit()));
     }
 
