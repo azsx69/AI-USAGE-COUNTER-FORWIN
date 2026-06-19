@@ -16,6 +16,7 @@ public sealed class TrayContext : ApplicationContext
     private readonly ContextMenuStrip _menu = new();
     private readonly System.Windows.Forms.Timer _timer;
     private readonly PopupForm _popup = new();
+    private readonly Bitmap _trayLogo = AppAssets.LoadLogoBitmap();
     private readonly SynchronizationContext _ui;
 
     private readonly ClaudeProvider _claude = new();
@@ -299,12 +300,26 @@ public sealed class TrayContext : ApplicationContext
         {
             g.Clear(Color.Transparent);
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+            g.DrawImage(_trayLogo, new Rectangle(0, 0, 32, 32));
+
+            var badgeRect = text.Length >= 3
+                ? new Rectangle(2, 18, 28, 12)
+                : new Rectangle(15, 17, 15, 13);
+            using var badge = new SolidBrush(alert
+                ? Color.FromArgb(230, 210, 45, 45)
+                : Color.FromArgb(210, 18, 34, 64));
+            g.FillEllipse(badge, badgeRect);
+
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
-            float size = text.Length >= 3 ? 13f : 18f;
+            float size = text.Length >= 3 ? 8f : 9f;
             using var font = new Font("Segoe UI", size, FontStyle.Bold, GraphicsUnit.Pixel);
-            using var brush = new SolidBrush(alert ? Color.FromArgb(255, 95, 95) : Color.White);
+            using var brush = new SolidBrush(Color.White);
             var sz = g.MeasureString(text, font);
-            g.DrawString(text, font, brush, (32 - sz.Width) / 2f, (32 - sz.Height) / 2f);
+            g.DrawString(text, font, brush,
+                badgeRect.X + (badgeRect.Width - sz.Width) / 2f,
+                badgeRect.Y + (badgeRect.Height - sz.Height) / 2f - 1f);
         }
 
         IntPtr handle = bmp.GetHicon();
@@ -369,6 +384,7 @@ public sealed class TrayContext : ApplicationContext
         _watcher?.Dispose();
         _notify.Visible = false;
         _notify.Dispose();
+        _trayLogo.Dispose();
         if (_iconHandle != IntPtr.Zero) DestroyIcon(_iconHandle);
         ExitThread();
     }

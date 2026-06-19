@@ -30,6 +30,8 @@ public sealed class WebViewHost : IDisposable
         };
         _web = new WebView2 { Dock = DockStyle.Fill };
         _form.Controls.Add(_web);
+        var icon = AppAssets.LoadAppIcon();
+        if (icon is not null) _form.Icon = icon;
 
         // Closing the login window must not destroy the host — just hide it.
         _form.FormClosing += (_, e) =>
