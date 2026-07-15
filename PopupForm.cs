@@ -7,6 +7,7 @@ public sealed class PopupModel
     public string Title = "Claude";
     public string StatusLine = "";
     public bool SignedIn;
+    public bool HasSession = true;
     public double SessionFrac;
     public string SessionValue = "—";
     public string SessionReset = "";
@@ -21,8 +22,12 @@ public sealed class PopupModel
 public sealed class PopupForm : Form
 {
     private IReadOnlyList<PopupModel> _models = Array.Empty<PopupModel>();
-    private const int SectionHeight = 150;
+    private const int TwoBarHeight = 160;  // extra bottom padding keeps the separator clear of the reset text
+    private const int OneBarHeight = 106;  // TwoBarHeight minus one 54px bar block
     private const int TopPad = 14;
+
+    // Sections shrink to fit their bar count so the gap between cards stays even.
+    private static int SectionHeightFor(PopupModel m) => m.HasSession ? TwoBarHeight : OneBarHeight;
 
     public PopupForm()
     {
@@ -38,7 +43,8 @@ public sealed class PopupForm : Form
     public void ShowWith(IReadOnlyList<PopupModel> models)
     {
         _models = models;
-        Height = TopPad * 2 + Math.Max(1, models.Count) * SectionHeight;
+        int content = models.Count == 0 ? TwoBarHeight : models.Sum(SectionHeightFor);
+        Height = TopPad * 2 + content;
         var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 800);
         Location = new Point(area.Right - Width - 12, area.Bottom - Height - 12);
         Invalidate();
@@ -56,7 +62,7 @@ public sealed class PopupForm : Form
         for (int i = 0; i < _models.Count; i++)
         {
             DrawSection(g, _models[i], y);
-            y += SectionHeight;
+            y += SectionHeightFor(_models[i]);
             if (i < _models.Count - 1)
             {
                 using var sep = new Pen(Color.FromArgb(55, 55, 60));
@@ -80,10 +86,20 @@ public sealed class PopupForm : Form
         g.DrawString(m.Title, titleFont, whiteBrush, 16, top);
         g.DrawString(m.StatusLine, smallFont, dimBrush, 16, top + 22);
 
-        DrawBar(g, "Session (5h)", m.SessionValue, m.SessionReset, m.SessionFrac,
-            m.Accent, top + 48, labelFont, valueFont, smallFont, whiteBrush, dimBrush);
-        DrawBar(g, "Weekly", m.WeeklyValue, m.WeeklyReset, m.WeeklyFrac,
-            Color.FromArgb(120, 200, 130), top + 102, labelFont, valueFont, smallFont, whiteBrush, dimBrush);
+        var weeklyColor = Color.FromArgb(120, 200, 130);
+        if (m.HasSession)
+        {
+            DrawBar(g, "Session (5h)", m.SessionValue, m.SessionReset, m.SessionFrac,
+                m.Accent, top + 48, labelFont, valueFont, smallFont, whiteBrush, dimBrush);
+            DrawBar(g, "Weekly", m.WeeklyValue, m.WeeklyReset, m.WeeklyFrac,
+                weeklyColor, top + 102, labelFont, valueFont, smallFont, whiteBrush, dimBrush);
+        }
+        else
+        {
+            // Providers without a session window (e.g. Codex) show weekly only.
+            DrawBar(g, "Weekly", m.WeeklyValue, m.WeeklyReset, m.WeeklyFrac,
+                weeklyColor, top + 48, labelFont, valueFont, smallFont, whiteBrush, dimBrush);
+        }
     }
 
     private void DrawBar(Graphics g, string label, string value, string reset, double frac,

@@ -5,7 +5,8 @@ namespace AiUsageCounter;
 // Codex (ChatGPT) usage via the internal API, run inside the logged-in
 // chatgpt.com page context:
 //   GET /api/auth/session                 -> { accessToken }   (cookie auth)
-//   GET /backend-api/wham/usage  (Bearer) -> rate_limit primary (5h) + secondary (weekly)
+//   GET /backend-api/wham/usage  (Bearer) -> rate_limit windows (Codex is now
+//     weekly-only; the 5h session window was dropped).
 // Falls back to scraping chatgpt.com/codex/settings/usage.
 public sealed class CodexProvider : IUsageProvider
 {
@@ -101,25 +102,31 @@ public sealed class CodexProvider : IUsageProvider
     private static ProviderUsage? ParseWhamUsage(JsonElement root)
     {
         var rl = JsonHelpers.Prop(root, "rate_limit", "rate_limits") ?? root;
-        var primary = JsonHelpers.Prop(rl, "primary_window", "primary");
-        var secondary = JsonHelpers.Prop(rl, "secondary_window", "secondary");
+        var w1 = ParseWindow(JsonHelpers.Prop(rl, "primary_window", "primary"));
+        var w2 = ParseWindow(JsonHelpers.Prop(rl, "secondary_window", "secondary"));
 
-        var p = ParseWindow(primary);
-        var s = ParseWindow(secondary);
-
-        // primary = 5h, secondary = weekly — but trust window durations when present.
-        if (p.dur is { } pd && s.dur is { } sd && pd > sd)
-            (p, s) = (s, p);
-
-        if (p.pct == null && s.pct == null) return null;
-        return new ProviderUsage
+        // Codex dropped the 5h session window; only a weekly window remains, and
+        // it can arrive in either slot. Route each window by its length instead
+        // of by position: short (<=6h) -> session, long -> weekly.
+        var u = new ProviderUsage { FetchedAt = DateTime.Now };
+        foreach (var w in new[] { w1, w2 })
         {
-            FetchedAt = DateTime.Now,
-            SessionPct = p.pct,
-            SessionResetAt = p.reset,
-            WeeklyPct = s.pct,
-            WeeklyResetAt = s.reset,
-        };
+            if (w.pct == null && w.reset == null) continue;
+            if (IsWeeklyWindow(w)) { u.WeeklyPct = w.pct; u.WeeklyResetAt = w.reset; }
+            else { u.SessionPct = w.pct; u.SessionResetAt = w.reset; }
+        }
+
+        if (u.SessionPct == null && u.WeeklyPct == null) return null;
+        return u;
+    }
+
+    // A window is "weekly" when its length is more than a session (5h). Prefer the
+    // reported window duration; otherwise infer from how far out the reset is.
+    private static bool IsWeeklyWindow((double? pct, DateTime? reset, double? dur) w)
+    {
+        if (w.dur is { } d) return d > 6 * 3600;
+        if (w.reset is { } r) return (r - DateTime.Now).TotalHours > 6;
+        return false;
     }
 
     private static (double? pct, DateTime? reset, double? dur) ParseWindow(JsonElement? any)
