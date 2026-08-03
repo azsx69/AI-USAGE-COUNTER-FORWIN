@@ -14,6 +14,11 @@ public sealed class PopupModel
     public double WeeklyFrac;
     public string WeeklyValue = "—";
     public string WeeklyReset = "";
+    public bool HasWeeklyModel;
+    public string WeeklyModelLabel = "";
+    public double WeeklyModelFrac;
+    public string WeeklyModelValue = "—";
+    public string WeeklyModelReset = "";
     public Color Accent = Color.FromArgb(80, 170, 255);
 }
 
@@ -22,12 +27,17 @@ public sealed class PopupModel
 public sealed class PopupForm : Form
 {
     private IReadOnlyList<PopupModel> _models = Array.Empty<PopupModel>();
-    private const int TwoBarHeight = 160;  // extra bottom padding keeps the separator clear of the reset text
-    private const int OneBarHeight = 106;  // TwoBarHeight minus one 54px bar block
+    private const int BarBlock = 54;       // one label+bar+reset row
+    private const int BarTop = 48;         // first bar offset inside a section
+    private const int BottomPad = 4;       // keeps the separator clear of the reset text
     private const int TopPad = 14;
 
-    // Sections shrink to fit their bar count so the gap between cards stays even.
-    private static int SectionHeightFor(PopupModel m) => m.HasSession ? TwoBarHeight : OneBarHeight;
+    // Sections size to their bar count so the gap between cards stays even.
+    private static int BarCountFor(PopupModel m)
+        => 1 + (m.HasSession ? 1 : 0) + (m.HasWeeklyModel ? 1 : 0);
+
+    private static int SectionHeightFor(PopupModel m)
+        => BarTop + BarCountFor(m) * BarBlock + BottomPad;
 
     public PopupForm()
     {
@@ -43,7 +53,7 @@ public sealed class PopupForm : Form
     public void ShowWith(IReadOnlyList<PopupModel> models)
     {
         _models = models;
-        int content = models.Count == 0 ? TwoBarHeight : models.Sum(SectionHeightFor);
+        int content = models.Count == 0 ? BarTop + 2 * BarBlock + BottomPad : models.Sum(SectionHeightFor);
         Height = TopPad * 2 + content;
         var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 800);
         Location = new Point(area.Right - Width - 12, area.Bottom - Height - 12);
@@ -87,19 +97,24 @@ public sealed class PopupForm : Form
         g.DrawString(m.StatusLine, smallFont, dimBrush, 16, top + 22);
 
         var weeklyColor = Color.FromArgb(120, 200, 130);
+        var modelColor = Color.FromArgb(225, 160, 90);
+
+        // Providers without a session window (e.g. Codex) show weekly only.
+        int y = top + BarTop;
         if (m.HasSession)
         {
             DrawBar(g, "Session (5h)", m.SessionValue, m.SessionReset, m.SessionFrac,
-                m.Accent, top + 48, labelFont, valueFont, smallFont, whiteBrush, dimBrush);
-            DrawBar(g, "Weekly", m.WeeklyValue, m.WeeklyReset, m.WeeklyFrac,
-                weeklyColor, top + 102, labelFont, valueFont, smallFont, whiteBrush, dimBrush);
+                m.Accent, y, labelFont, valueFont, smallFont, whiteBrush, dimBrush);
+            y += BarBlock;
         }
-        else
-        {
-            // Providers without a session window (e.g. Codex) show weekly only.
-            DrawBar(g, "Weekly", m.WeeklyValue, m.WeeklyReset, m.WeeklyFrac,
-                weeklyColor, top + 48, labelFont, valueFont, smallFont, whiteBrush, dimBrush);
-        }
+
+        DrawBar(g, m.HasWeeklyModel ? "Weekly · all models" : "Weekly", m.WeeklyValue, m.WeeklyReset,
+            m.WeeklyFrac, weeklyColor, y, labelFont, valueFont, smallFont, whiteBrush, dimBrush);
+        y += BarBlock;
+
+        if (m.HasWeeklyModel)
+            DrawBar(g, "Weekly · " + m.WeeklyModelLabel, m.WeeklyModelValue, m.WeeklyModelReset,
+                m.WeeklyModelFrac, modelColor, y, labelFont, valueFont, smallFont, whiteBrush, dimBrush);
     }
 
     private void DrawBar(Graphics g, string label, string value, string reset, double frac,

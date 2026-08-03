@@ -90,8 +90,36 @@ public sealed class ClaudeProvider : IUsageProvider
             if (sd.TryGetProperty("resets_at", out var ra)) u.WeeklyResetAt = JsonHelpers.Date(ra);
         }
 
+        ApplyScopedWeekly(obj, u);
+
         if (u.SessionPct == null && u.WeeklyPct == null) return null;
         return u;
+    }
+
+    // claude.ai also returns a self-describing "limits" array. The entry with
+    // kind "weekly_scoped" is the per-model weekly window ("Weekly · Fable" in the
+    // web UI) and carries its own display name, so a model rename keeps working.
+    private static void ApplyScopedWeekly(JsonElement obj, ProviderUsage u)
+    {
+        if (!obj.TryGetProperty("limits", out var limits) || limits.ValueKind != JsonValueKind.Array)
+            return;
+
+        foreach (var lim in limits.EnumerateArray())
+        {
+            if (lim.ValueKind != JsonValueKind.Object) continue;
+            if (JsonHelpers.Str(lim, "kind") != "weekly_scoped") continue;
+
+            var pct = JsonHelpers.Prop(lim, "percent");
+            if (pct == null || JsonHelpers.Num(pct.Value) is not { } value) continue;
+
+            u.WeeklyModelPct = value;
+            if (JsonHelpers.Prop(lim, "resets_at") is { } ra) u.WeeklyModelResetAt = JsonHelpers.Date(ra);
+
+            var model = JsonHelpers.Prop(lim, "scope") is { } scope ? JsonHelpers.Prop(scope, "model") : null;
+            var name = model is { } m ? JsonHelpers.Str(m, "display_name") : null;
+            u.WeeklyModelLabel = string.IsNullOrWhiteSpace(name) ? "model" : name;
+            return;
+        }
     }
 }
 
@@ -105,6 +133,9 @@ internal static class JsonHelpers
             if (o.TryGetProperty(n, out var v)) return v;
         return null;
     }
+
+    public static string? Str(JsonElement o, string name)
+        => Prop(o, name) is { ValueKind: JsonValueKind.String } el ? el.GetString() : null;
 
     public static double? Num(JsonElement el) => el.ValueKind switch
     {

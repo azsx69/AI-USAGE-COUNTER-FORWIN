@@ -9,6 +9,11 @@ public sealed class ProviderUsage
     public DateTime? WeeklyResetAt { get; set; }
     public DateTime FetchedAt { get; set; } = DateTime.Now;
 
+    // Weekly window scoped to a single model (e.g. Fable). Label comes from the API.
+    public double? WeeklyModelPct { get; set; }
+    public DateTime? WeeklyModelResetAt { get; set; }
+    public string? WeeklyModelLabel { get; set; }
+
     public bool SessionAtLimit => (SessionPct ?? 0) >= 99.99;
     public bool WeeklyAtLimit => (WeeklyPct ?? 0) >= 99.99;
 }

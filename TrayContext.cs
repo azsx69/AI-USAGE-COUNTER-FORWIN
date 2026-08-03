@@ -346,6 +346,8 @@ public sealed class TrayContext : ApplicationContext
             var u = _usage[p.Id];
             DateTime? sReset = live ? u!.SessionResetAt : (p.Id == "claude" ? _local.SessionResetAt : null);
             DateTime? wReset = live ? u!.WeeklyResetAt : null;
+            // Per-model weekly window (e.g. Fable) — live payload only, no local estimate.
+            double? wModel = live ? u!.WeeklyModelPct : null;
 
             list.Add(new PopupModel
             {
@@ -360,6 +362,11 @@ public sealed class TrayContext : ApplicationContext
                 WeeklyFrac = (weekly ?? 0) / 100.0,
                 WeeklyValue = weekly is { } wv ? $"{wv:F1}%" : "—",
                 WeeklyReset = ResetLabel(wReset),
+                HasWeeklyModel = wModel != null,
+                WeeklyModelLabel = u?.WeeklyModelLabel ?? "",
+                WeeklyModelFrac = (wModel ?? 0) / 100.0,
+                WeeklyModelValue = wModel is { } mv ? $"{mv:F1}%" : "—",
+                WeeklyModelReset = ResetLabel(live ? u!.WeeklyModelResetAt : null),
             });
         }
         return list;
