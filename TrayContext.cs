@@ -243,7 +243,7 @@ public sealed class TrayContext : ApplicationContext
     private void RefreshDisplay()
     {
         var (session, weekly, _, live) = Resolve(_menubarSource);
-        // Codex has no session window anymore — fall back to weekly for the badge.
+        // Fall back to weekly while a provider has no session window available.
         double? primary = session ?? weekly;
         double s = primary ?? 0;
         bool atLimit = s >= 99.99;
@@ -354,7 +354,7 @@ public sealed class TrayContext : ApplicationContext
                 Title = p.DisplayName,
                 StatusLine = status,
                 SignedIn = _auth[p.Id] == AuthState.SignedIn,
-                HasSession = p.Id != "codex",
+                HasSession = PopupModel.ShouldShowSession(p.Id, session),
                 Accent = _accents.GetValueOrDefault(p.Id, Color.FromArgb(80, 170, 255)),
                 SessionFrac = (session ?? 0) / 100.0,
                 SessionValue = session is { } sv ? $"{sv:F1}%" : "—",

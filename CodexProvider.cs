@@ -5,8 +5,7 @@ namespace AiUsageCounter;
 // Codex (ChatGPT) usage via the internal API, run inside the logged-in
 // chatgpt.com page context:
 //   GET /api/auth/session                 -> { accessToken }   (cookie auth)
-//   GET /backend-api/wham/usage  (Bearer) -> rate_limit windows (Codex is now
-//     weekly-only; the 5h session window was dropped).
+//   GET /backend-api/wham/usage  (Bearer) -> rate_limit windows.
 // Falls back to scraping chatgpt.com/codex/settings/usage.
 public sealed class CodexProvider : IUsageProvider
 {
@@ -105,9 +104,8 @@ public sealed class CodexProvider : IUsageProvider
         var w1 = ParseWindow(JsonHelpers.Prop(rl, "primary_window", "primary"));
         var w2 = ParseWindow(JsonHelpers.Prop(rl, "secondary_window", "secondary"));
 
-        // Codex dropped the 5h session window; only a weekly window remains, and
-        // it can arrive in either slot. Route each window by its length instead
-        // of by position: short (<=6h) -> session, long -> weekly.
+        // Windows can arrive in either slot. Route each one by its length:
+        // short (<=6h) -> session, long -> weekly.
         var u = new ProviderUsage { FetchedAt = DateTime.Now };
         foreach (var w in new[] { w1, w2 })
         {
@@ -162,6 +160,7 @@ public sealed class CodexProvider : IUsageProvider
             }
             for (let i = 0; i < 8; i++) {
                 const text = (document.body.innerText || '').replace(/ /g, ' ');
+                const pageShowsRemaining = /usage\s+remaining/i.test(text);
                 const near = (re) => {
                     const idx = text.search(re);
                     if (idx < 0) return null;
@@ -169,9 +168,9 @@ public sealed class CodexProvider : IUsageProvider
                     const m = seg.match(/(\d+(?:\.\d+)?)\s*%/);
                     if (!m) return null;
                     const around = seg.slice(Math.max(0, m.index - 40), m.index + 40);
-                    return { pct: parseFloat(m[1]), remaining: /left|remain/i.test(around) };
+                    return { pct: parseFloat(m[1]), remaining: pageShowsRemaining || /left|remain/i.test(around) };
                 };
-                const session = near(/5[\s-]?hour/i);
+                const session = near(/\b5\s*(?:h|hours?)\b/i);
                 const weekly = near(/week/i);
                 if (session || weekly) { post(JSON.stringify({ data: { session, weekly } })); return; }
                 await new Promise(r => setTimeout(r, 1000));
@@ -196,7 +195,7 @@ public sealed class CodexProvider : IUsageProvider
                     && el.TryGetProperty("pct", out var pe) && JsonHelpers.Num(pe) is { } pct)
                 {
                     bool remaining = el.TryGetProperty("remaining", out var re) && re.ValueKind == JsonValueKind.True;
-                    return remaining ? Math.Max(0, 100 - pct) : pct;
+                    return ToUsedPercent(pct, remaining);
                 }
                 return null;
             }
@@ -207,4 +206,7 @@ public sealed class CodexProvider : IUsageProvider
         }
         catch { return FetchResult.Failure; }
     }
+
+    internal static double ToUsedPercent(double pct, bool remaining)
+        => Math.Clamp(remaining ? 100 - pct : pct, 0, 100);
 }

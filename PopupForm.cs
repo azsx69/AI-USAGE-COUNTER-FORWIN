@@ -20,6 +20,9 @@ public sealed class PopupModel
     public string WeeklyModelValue = "—";
     public string WeeklyModelReset = "";
     public Color Accent = Color.FromArgb(80, 170, 255);
+
+    internal static bool ShouldShowSession(string providerId, double? sessionUsage)
+        => providerId != "codex" || sessionUsage != null;
 }
 
 // Popup anchored bottom-right, shown on tray click. Renders one section per
@@ -99,7 +102,6 @@ public sealed class PopupForm : Form
         var weeklyColor = Color.FromArgb(120, 200, 130);
         var modelColor = Color.FromArgb(225, 160, 90);
 
-        // Providers without a session window (e.g. Codex) show weekly only.
         int y = top + BarTop;
         if (m.HasSession)
         {
