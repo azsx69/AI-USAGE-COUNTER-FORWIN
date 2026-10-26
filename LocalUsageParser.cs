@@ -20,17 +20,36 @@ public static class LocalUsageParser
     public static string ProjectsDir => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "projects");
 
-    public static Task<LocalUsage> ParseAsync() => Task.Run(Parse);
+    // cache ผล parse รายไฟล์ (key = full path) — อ่านใหม่เฉพาะไฟล์ที่เวลาแก้ไขหรือขนาดเปลี่ยน
+    // ไฟล์ที่ถูกลบจะหลุดจาก cache เองเพราะสร้าง dictionary ใหม่ทุกรอบ
+    private static Dictionary<string, (DateTime writeUtc, long length, Record[] records)> _cache = new();
+    private static readonly object _cacheLock = new();
 
-    private static LocalUsage Parse()
+    public static Task<LocalUsage> ParseAsync() => Task.Run(() => Parse(ProjectsDir));
+
+    internal static LocalUsage Parse(string dir)
     {
         var result = new LocalUsage();
-        string dir = ProjectsDir;
         if (!Directory.Exists(dir)) return result;
 
         var records = new List<Record>();
-        foreach (var file in Directory.EnumerateFiles(dir, "*.jsonl", SearchOption.AllDirectories))
-            CollectRecords(file, records);
+        lock (_cacheLock)
+        {
+            var next = new Dictionary<string, (DateTime writeUtc, long length, Record[] records)>();
+            foreach (var file in new DirectoryInfo(dir).EnumerateFiles("*.jsonl", SearchOption.AllDirectories))
+            {
+                if (!_cache.TryGetValue(file.FullName, out var entry)
+                    || entry.writeUtc != file.LastWriteTimeUtc || entry.length != file.Length)
+                {
+                    var parsed = CollectRecords(file.FullName);
+                    if (parsed == null) continue;
+                    entry = (file.LastWriteTimeUtc, file.Length, parsed);
+                }
+                next[file.FullName] = entry;
+                records.AddRange(entry.records);
+            }
+            _cache = next;
+        }
 
         if (records.Count == 0) return result;
         records.Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
@@ -122,18 +141,22 @@ public static class LocalUsageParser
         return date.AddDays(-diff);
     }
 
-    private static void CollectRecords(string path, List<Record> into)
+    // อ่านทีละบรรทัด (ReadLines) แทน ReadAllLines เพื่อไม่ต้องโหลดทั้งไฟล์เข้าแรม
+    // คืน null ถ้าอ่านไม่สำเร็จ — ไม่ cache ไว้ จะลองอ่านใหม่รอบหน้า
+    private static Record[]? CollectRecords(string path)
     {
-        string[] lines;
-        try { lines = File.ReadAllLines(path); }
-        catch { return; }
-
-        foreach (var line in lines)
+        var into = new List<Record>();
+        try
         {
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            var rec = ParseRecord(line);
-            if (rec != null) into.Add(rec.Value);
+            foreach (var line in File.ReadLines(path))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                var rec = ParseRecord(line);
+                if (rec != null) into.Add(rec.Value);
+            }
         }
+        catch { return null; }
+        return into.ToArray();
     }
 
     private static Record? ParseRecord(string line)

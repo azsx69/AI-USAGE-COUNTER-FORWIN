@@ -45,6 +45,8 @@ public sealed class TrayContext : ApplicationContext
     private IntPtr _iconHandle = IntPtr.Zero;
     private bool _busyLogin;
     private bool _checkingUpdate;
+    private bool _parsingLocal;
+    private bool _localPending;
 
     private const string UpdateRepoUrl = "https://github.com/azsx69/AI-USAGE-COUNTER-FORWIN";
 
@@ -153,10 +155,22 @@ public sealed class TrayContext : ApplicationContext
         RefreshDisplay();
     }
 
+    // กัน parse ซ้อน: ถ้ากำลัง parse อยู่ ให้จำไว้ แล้ว parse ใหม่อีกรอบเดียวหลังรอบนี้จบ
+    // (เดิม watcher ยิงทุก 800ms ระหว่างใช้ Claude Code ทำให้ parse ซ้อนกันจนกินแรมหลาย GB)
     private async Task RefreshLocalAsync()
     {
-        _local = await LocalUsageParser.ParseAsync();
-        RefreshDisplay();
+        if (_parsingLocal) { _localPending = true; return; }
+        _parsingLocal = true;
+        try
+        {
+            do
+            {
+                _localPending = false;
+                _local = await LocalUsageParser.ParseAsync();
+                RefreshDisplay();
+            } while (_localPending);
+        }
+        finally { _parsingLocal = false; }
     }
 
     // MARK: - Local file watcher (Claude only)
