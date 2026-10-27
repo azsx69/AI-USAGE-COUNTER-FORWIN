@@ -46,3 +46,14 @@ public sealed class LocalUsage
     public double SessionPct => SessionActive ? Math.Min(1.0, (double)SessionTokens / Math.Max(1, SessionLimit)) * 100 : 0;
     public double WeeklyPct => Math.Min(1.0, (double)WeeklyTokens / Math.Max(1, WeeklyLimit)) * 100;
 }
+
+// สถานะเครื่อง ณ ตอนอ่าน ค่า null = อ่านไม่ได้ ส่วน TempNote บอกเหตุผลเมื่ออ่านอุณหภูมิไม่ได้
+public sealed class SystemUsage
+{
+    public double? CpuPct { get; set; }
+    public double? RamPct { get; set; }
+    public double RamUsedGb { get; set; }
+    public double RamTotalGb { get; set; }
+    public double? TempC { get; set; }
+    public string TempNote { get; set; } = "";
+}

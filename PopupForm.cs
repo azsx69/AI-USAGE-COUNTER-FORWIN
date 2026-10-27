@@ -30,10 +30,12 @@ public sealed class PopupModel
 public sealed class PopupForm : Form
 {
     private IReadOnlyList<PopupModel> _models = Array.Empty<PopupModel>();
+    private SystemUsage? _system;
     private const int BarBlock = 54;       // one label+bar+reset row
     private const int BarTop = 48;         // first bar offset inside a section
     private const int BottomPad = 4;       // keeps the separator clear of the reset text
     private const int TopPad = 14;
+    private const int SystemSectionHeight = BarTop + 3 * BarBlock + BottomPad; // CPU / RAM / temp
 
     // Sections size to their bar count so the gap between cards stays even.
     private static int BarCountFor(PopupModel m)
@@ -53,16 +55,24 @@ public sealed class PopupForm : Form
         Deactivate += (_, _) => Hide();
     }
 
-    public void ShowWith(IReadOnlyList<PopupModel> models)
+    public void ShowWith(IReadOnlyList<PopupModel> models, SystemUsage? system)
     {
         _models = models;
+        _system = system;
         int content = models.Count == 0 ? BarTop + 2 * BarBlock + BottomPad : models.Sum(SectionHeightFor);
-        Height = TopPad * 2 + content;
+        Height = TopPad * 2 + content + SystemSectionHeight;
         var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1280, 800);
         Location = new Point(area.Right - Width - 12, area.Bottom - Height - 12);
         Invalidate();
         Show();
         Activate();
+    }
+
+    // เรียกทุก 2 วินาทีระหว่าง popup เปิด — วาดใหม่เฉพาะตัวเลขระบบ
+    public void UpdateSystem(SystemUsage system)
+    {
+        _system = system;
+        if (Visible) Invalidate();
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -76,12 +86,38 @@ public sealed class PopupForm : Form
         {
             DrawSection(g, _models[i], y);
             y += SectionHeightFor(_models[i]);
-            if (i < _models.Count - 1)
-            {
-                using var sep = new Pen(Color.FromArgb(55, 55, 60));
-                g.DrawLine(sep, 16, y - 8, Width - 16, y - 8);
-            }
+            // System อยู่ท้ายเสมอ จึงคั่นทุก provider
+            using var sep = new Pen(Color.FromArgb(55, 55, 60));
+            g.DrawLine(sep, 16, y - 8, Width - 16, y - 8);
         }
+        DrawSystem(g, _system, y);
+    }
+
+    private void DrawSystem(Graphics g, SystemUsage? s, int top)
+    {
+        using var titleFont = new Font("Segoe UI Semibold", 11f);
+        using var labelFont = new Font("Segoe UI", 9f);
+        using var valueFont = new Font("Segoe UI Semibold", 10f);
+        using var smallFont = new Font("Segoe UI", 8f);
+        using var whiteBrush = new SolidBrush(Color.FromArgb(235, 235, 240));
+        using var dimBrush = new SolidBrush(Color.FromArgb(150, 150, 158));
+
+        g.DrawString("System", titleFont, whiteBrush, 16, top);
+        g.DrawString("Updates every 2s", smallFont, dimBrush, 16, top + 22);
+
+        int y = top + BarTop;
+        DrawBar(g, "CPU", s?.CpuPct is { } c ? $"{c:F1}%" : "—", "", (s?.CpuPct ?? 0) / 100.0,
+            Color.FromArgb(80, 170, 255), y, labelFont, valueFont, smallFont, whiteBrush, dimBrush);
+        y += BarBlock;
+
+        string ramDetail = s is { RamTotalGb: > 0 } ? $"{s.RamUsedGb:F1} / {s.RamTotalGb:F1} GB" : "";
+        DrawBar(g, "RAM", s?.RamPct is { } r ? $"{r:F1}%" : "—", ramDetail, (s?.RamPct ?? 0) / 100.0,
+            Color.FromArgb(120, 200, 130), y, labelFont, valueFont, smallFont, whiteBrush, dimBrush);
+        y += BarBlock;
+
+        // แถบอุณหภูมิเทียบกับ 100 °C (ใกล้ Tjmax ของ CPU ทั่วไป)
+        DrawBar(g, "CPU temp", s?.TempC is { } t ? $"{t:F0} °C" : "—", s?.TempNote ?? "", (s?.TempC ?? 0) / 100.0,
+            Color.FromArgb(225, 160, 90), y, labelFont, valueFont, smallFont, whiteBrush, dimBrush);
     }
 
     private void DrawSection(Graphics g, PopupModel m, int top)

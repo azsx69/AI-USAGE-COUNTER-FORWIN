@@ -16,6 +16,8 @@ public sealed class TrayContext : ApplicationContext
     private readonly ContextMenuStrip _menu = new();
     private readonly System.Windows.Forms.Timer _timer;
     private readonly PopupForm _popup = new();
+    private readonly SystemMonitor _system = new();
+    private readonly System.Windows.Forms.Timer _systemTimer = new() { Interval = 2_000 };
     private readonly Bitmap _trayLogo = AppAssets.LoadLogoBitmap();
     private readonly SynchronizationContext _ui;
 
@@ -38,6 +40,7 @@ public sealed class TrayContext : ApplicationContext
     private readonly Dictionary<string, ProviderUsage?> _usage = new();
     private readonly HashSet<string> _fetching = new();
     private LocalUsage _local = new();
+    private SystemUsage? _systemUsage;
 
     private string _menubarSource = "claude";
     private FileSystemWatcher? _watcher;
@@ -47,6 +50,7 @@ public sealed class TrayContext : ApplicationContext
     private bool _checkingUpdate;
     private bool _parsingLocal;
     private bool _localPending;
+    private bool _readingSystem;
 
     private const string UpdateRepoUrl = "https://github.com/azsx69/AI-USAGE-COUNTER-FORWIN";
 
@@ -69,6 +73,14 @@ public sealed class TrayContext : ApplicationContext
         _timer = new System.Windows.Forms.Timer { Interval = 60_000 };
         _timer.Tick += (_, _) => FetchAllSignedIn();
         _timer.Start();
+
+        // อ่าน CPU/RAM/อุณหภูมิเฉพาะตอน popup เปิดอยู่ ปิดแล้วหยุด
+        _systemTimer.Tick += (_, _) => _ = RefreshSystemAsync();
+        _popup.VisibleChanged += (_, _) =>
+        {
+            if (_popup.Visible) { _systemTimer.Start(); _ = RefreshSystemAsync(); }
+            else _systemTimer.Stop();
+        };
 
         _ = StartupAsync();
     }
@@ -171,6 +183,19 @@ public sealed class TrayContext : ApplicationContext
             } while (_localPending);
         }
         finally { _parsingLocal = false; }
+    }
+
+    // กันอ่านซ้อน: รอบก่อนยังไม่จบ (เช่น LibreHardwareMonitor เปิดครั้งแรก) ให้ข้ามรอบนี้ไป
+    private async Task RefreshSystemAsync()
+    {
+        if (_readingSystem) return;
+        _readingSystem = true;
+        try
+        {
+            _systemUsage = await _system.ReadAsync();
+            _popup.UpdateSystem(_systemUsage);
+        }
+        finally { _readingSystem = false; }
     }
 
     // MARK: - Local file watcher (Claude only)
@@ -348,7 +373,7 @@ public sealed class TrayContext : ApplicationContext
     {
         if (e.Button != MouseButtons.Left) return;
         if (_popup.Visible) { _popup.Hide(); return; }
-        _popup.ShowWith(BuildPopupModels());
+        _popup.ShowWith(BuildPopupModels(), _systemUsage);
     }
 
     private List<PopupModel> BuildPopupModels()
@@ -405,6 +430,8 @@ public sealed class TrayContext : ApplicationContext
     private void Quit()
     {
         _timer.Stop();
+        _systemTimer.Stop();
+        _system.Dispose();
         _watcher?.Dispose();
         _notify.Visible = false;
         _notify.Dispose();

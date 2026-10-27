@@ -37,6 +37,16 @@ var tests = new (string Name, Func<bool> Run)[]
         File.SetLastWriteTimeUtc(a, stamp);
         return LocalUsageParser.Parse(dir).WeeklyTokens == 100;
     })),
+    ("CPU percent counts kernel + user time minus idle as busy",
+        () => SystemMonitor.CpuPercent(idleDelta: 75, kernelDelta: 80, userDelta: 20) == 25.0),
+    ("CPU percent is unknown when no time has elapsed",
+        () => SystemMonitor.CpuPercent(0, 0, 0) == null),
+    ("CPU temp prefers the package sensor over hotter cores",
+        () => SystemMonitor.PickCpuTemp([("CPU Core #1", 70f), ("CPU Package", 55f)]) == 55),
+    ("CPU temp falls back to the hottest sensor",
+        () => SystemMonitor.PickCpuTemp([("CPU Core #1", 50f), ("CPU Core #2", 62f)]) == 62),
+    ("CPU temp is unknown when sensors have no reading",
+        () => SystemMonitor.PickCpuTemp([("CPU Package", null)]) == null),
     ("Local parser drops a deleted log file", () => WithLogDir(dir =>
     {
         File.WriteAllText(Path.Combine(dir, "a.jsonl"), LogLine(100));
